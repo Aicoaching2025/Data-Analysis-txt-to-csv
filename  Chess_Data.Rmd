@@ -1,0 +1,187 @@
+---
+title: "Data Analysis: Converting .txt to .csv"
+author: "Candace Grant"
+date: "2025-09-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+Loading required libraries
+```{r}
+library(stringr)     
+library(dplyr)      
+library(readr)        
+library(knitr)     
+```
+
+### Load Required Libraries
+
+```{r libraries}
+library(stringr)      # For string manipulation
+library(dplyr)        # For data manipulation
+library(readr)        # For reading/writing files
+library(knitr)        # For nice table display
+```
+
+### Read and Parse the Chess Data
+
+```{r read-data}
+
+# Read the text file
+chess_text <- readLines("chess_data.txt", warn = FALSE)
+
+# Remove header lines and separators (lines with dashes)
+clean_data <- chess_text[!grepl("^-+", chess_text) & chess_text != ""]
+
+# Remove any remaining empty lines
+clean_data <- clean_data[nzchar(trimws(clean_data))]
+
+cat("Total lines in file:", length(chess_text), "\n")
+cat("Clean data lines:", length(clean_data), "\n")
+```
+
+### Extract Required Libraries
+
+```{r}
+# Initialize vectors to store extracted data
+player_names <- c()
+states <- c()
+total_points <- c()
+pre_ratings <- c()
+all_opponents <- list()
+
+# Process data in pairs (player line + rating line)
+for (i in seq(1, length(clean_data), 2)) {
+  # Make sure we have both lines
+  if (i + 1 <= length(clean_data)) {
+    player_line <- clean_data[i]
+    rating_line <- clean_data[i + 1]
+    
+    # Split by | and extract data
+    player_parts <- str_split(player_line, "\\|")[[1]]
+    rating_parts <- str_split(rating_line, "\\|")[[1]]
+    
+    # Skip if we don't have enough parts
+    if (length(player_parts) < 3 || length(rating_parts) < 2) {
+      next
+    }
+    
+    # Extract name and points from player line
+    name <- str_trim(player_parts[2])
+    points <- as.numeric(str_trim(player_parts[3]))
+    
+    # Extract state from rating line
+    state <- str_trim(rating_parts[1])
+    
+    # Extract pre-rating using simple string search
+    rating_text <- rating_parts[2]
+    
+    # Find where "R: " appears and extract the number after it
+    if (str_detect(rating_text, "R:")) {
+      r_match <- str_extract(rating_text, "R:\\s*\\d+")
+      pre_rating <- as.numeric(str_extract(r_match, "\\d+"))
+    } else {
+      pre_rating <- NA
+    }
+    
+    # Extract opponent numbers from rounds (columns 4 and beyond)
+    opponent_numbers <- c()
+    for (round_col in 4:length(player_parts)) {
+      round_result <- str_trim(player_parts[round_col])
+      # Extract any number from the round result (opponent pair number)
+      numbers <- str_extract_all(round_result, "\\d+")[[1]]
+      if (length(numbers) > 0) {
+        opponent_numbers <- c(opponent_numbers, as.numeric(numbers[1]))
+      }
+    }
+    
+    # Store data
+    player_names <- c(player_names, name)
+    states <- c(states, state)
+    total_points <- c(total_points, points)
+    pre_ratings <- c(pre_ratings, pre_rating)
+    all_opponents[[length(player_names)]] <- opponent_numbers
+  }
+}
+
+cat("Extracted", length(player_names), "players\n")
+```
+### Calculate Average Opponent Ratings
+
+```{r}
+# Calculate average opponent ratings
+avg_opponent_ratings <- c()
+
+for (i in 1:length(player_names)) {
+  opponents <- all_opponents[[i]]
+  
+  if (length(opponents) > 0) {
+    # Look up opponent ratings
+    opponent_ratings <- c()
+    for (opp_num in opponents) {
+      if (opp_num <= length(pre_ratings) && !is.na(pre_ratings[opp_num])) {
+        opponent_ratings <- c(opponent_ratings, pre_ratings[opp_num])
+      }
+    }
+    
+    # Calculate average
+    if (length(opponent_ratings) > 0) {
+      avg_opponent_ratings <- c(avg_opponent_ratings, round(mean(opponent_ratings), 0))
+    } else {
+      avg_opponent_ratings <- c(avg_opponent_ratings, NA)
+    }
+  } else {
+    avg_opponent_ratings <- c(avg_opponent_ratings, NA)
+  }
+}
+```
+
+### Making the Final Dataset
+
+```{r}
+# Create dataframe with extracted data
+chess_results <- data.frame(
+  Player_Name = player_names,
+  State = states,
+  Total_Points = total_points,
+  Pre_Rating = pre_ratings,
+  Avg_Opponent_Rating = avg_opponent_ratings,
+  stringsAsFactors = FALSE
+)
+
+# Display results
+kable(head(chess_results, 10), caption = "First 10 Players")
+
+# Show summary statistics
+cat("\nSummary Statistics:\n")
+cat("Number of players:", nrow(chess_results), "\n")
+cat("States represented:", length(unique(chess_results$State)), "\n")
+cat("Average pre-rating:", round(mean(chess_results$Pre_Rating, na.rm = TRUE), 0), "\n")
+cat("Average opponent rating:", round(mean(chess_results$Avg_Opponent_Rating, na.rm = TRUE), 0), "\n")
+```
+
+### Transferring the Data to a .csv
+
+```{r}
+# Write to CSV file
+write.csv(chess_results, "chess_tournament_results.csv", row.names = FALSE)
+
+# Verify it worked
+if (file.exists("chess_tournament_results.csv")) {
+  cat("✓ Successfully created chess_tournament_results.csv\n")
+  
+  # Read back the CSV to verify
+  test_data <- read.csv("chess_tournament_results.csv")
+  cat("CSV file contains", nrow(test_data), "rows and", ncol(test_data), "columns\n")
+  
+  # Show first few rows of CSV
+  kable(head(test_data, 5), caption = "Verification: First 5 rows of CSV file")
+} else {
+  cat("✗ Error: CSV file was not created\n")
+}
+```
+
+
+
